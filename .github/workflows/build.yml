@@ -11,7 +11,7 @@ jobs:
     name: Build Linux VST3
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
@@ -25,7 +25,7 @@ jobs:
       run: cmake --build build --config Release --target AdaptiveIR_VST3
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: AdaptiveIR_Linux_VST3
         path: build/AdaptiveIR_artefacts/VST3/
@@ -34,7 +34,7 @@ jobs:
     name: Build Windows VST3
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Configure CMake
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -43,7 +43,7 @@ jobs:
       run: cmake --build build --config Release --target AdaptiveIR_VST3
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: AdaptiveIR_Windows_VST3
         path: build/AdaptiveIR_artefacts/Release/VST3/
