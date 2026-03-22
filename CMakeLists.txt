@@ -3,10 +3,8 @@ project(AdaptiveIR VERSION 1.0.0)
 
 # Gestione portabile di JUCE
 if(EXISTS "/home/test/JUCE")
-    # Usa la versione locale per compilazioni veloci
     add_subdirectory(/home/test/JUCE ${CMAKE_BINARY_DIR}/JUCE)
 else()
-    # Scarica e configura JUCE automaticamente (per GitHub Actions o altri utenti)
     include(FetchContent)
     FetchContent_Declare(
         JUCE
@@ -24,7 +22,7 @@ juce_add_plugin(AdaptiveIR
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    COPY_PLUGIN_AFTER_BUILD TRUE # Copia automaticamente nella cartella plugin di sistema
+    COPY_PLUGIN_AFTER_BUILD TRUE
     PLUGIN_MANUFACTURER_CODE TuoM
     PLUGIN_CODE AdIR
     FORMATS VST3 AU Standalone
@@ -43,24 +41,25 @@ target_sources(AdaptiveIR
         src/dsp/DynamicEQ.h
 )
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK3 REQUIRED gtk+-x11-3.0 webkit2gtk-4.1 libcurl)
-
+# Definizione comune a tutti i sistemi
 target_compile_definitions(AdaptiveIR
     PRIVATE
         JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
 )
 
-target_include_directories(AdaptiveIR
-    PRIVATE
-        ${GTK3_INCLUDE_DIRS}
-)
+# Dipendenze specifiche per Linux (GTK, WebKit, Curl)
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GTK3 REQUIRED gtk+-x11-3.0 webkit2gtk-4.1 libcurl)
+
+    target_include_directories(AdaptiveIR PRIVATE ${GTK3_INCLUDE_DIRS})
+    target_link_libraries(AdaptiveIR PRIVATE ${GTK3_LIBRARIES})
+endif()
 
 target_link_libraries(AdaptiveIR
     PRIVATE
         juce::juce_audio_utils
-        juce::juce_dsp # Libreria DSP di JUCE (FFT, Convolution, IIR)
-        ${GTK3_LIBRARIES}
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

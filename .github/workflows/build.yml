@@ -27,11 +27,15 @@ jobs:
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
     - name: Build
       run: cmake --build build --config Release --target AdaptiveIR_VST3
+    - name: Prepare Artifact
+      run: |
+        mkdir -p artifacts
+        find build -name "*.vst3" -exec cp -r {} artifacts/ \;
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: AdaptiveIR_Linux_VST3
-        path: build/AdaptiveIR_artefacts/VST3/
+        path: artifacts/
 
   build_windows:
     name: Build Windows VST3
@@ -42,16 +46,20 @@ jobs:
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
     - name: Build
       run: cmake --build build --config Release --target AdaptiveIR_VST3
+    - name: Prepare Artifact
+      shell: bash
+      run: |
+        mkdir -p artifacts
+        find build -name "*.vst3" -exec cp -rv {} artifacts/ \;
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: AdaptiveIR_Windows_VST3
-        path: build/AdaptiveIR_artefacts/Release/VST3/
+        path: artifacts/
 
   create_release:
     name: Create/Update Release
     needs: [build_linux, build_windows]
-    # Esegue sempre se è un tag o se è il ramo main, anche se uno dei build fallisce
     if: always() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     permissions:
@@ -92,7 +100,6 @@ jobs:
           Attenzione: questa versione potrebbe essere instabile.
         files: final_assets/*
         prerelease: true
-        overwrite: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
