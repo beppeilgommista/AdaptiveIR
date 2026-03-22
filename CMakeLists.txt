@@ -1,8 +1,20 @@
 cmake_minimum_required(VERSION 3.22)
 project(AdaptiveIR VERSION 1.0.0)
 
-# Utilizza la versione locale di JUCE
-add_subdirectory(/home/test/JUCE ${CMAKE_BINARY_DIR}/JUCE)
+# Gestione portabile di JUCE
+if(EXISTS "/home/test/JUCE")
+    # Usa la versione locale per compilazioni veloci
+    add_subdirectory(/home/test/JUCE ${CMAKE_BINARY_DIR}/JUCE)
+else()
+    # Scarica e configura JUCE automaticamente (per GitHub Actions o altri utenti)
+    include(FetchContent)
+    FetchContent_Declare(
+        JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG        8.0.6
+    )
+    FetchContent_MakeAvailable(JUCE)
+endif()
 
 # Definisci il plugin
 juce_add_plugin(AdaptiveIR

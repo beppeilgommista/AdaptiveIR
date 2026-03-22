@@ -1,0 +1,32 @@
+# Build directories
+/build/
+/builds/
+/cmake-build-*/
+/out/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+
+# Visual Studio
+/x64/
+/Debug/
+/Release/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.filters
+
+# JUCE/CMake Specific
+/_deps/
+/AdaptiveIR_artefacts/
+/AdaptiveIR_vst3_helper
+compile_commands.json
+
+# System
+.DS_Store
+Thumbs.db
