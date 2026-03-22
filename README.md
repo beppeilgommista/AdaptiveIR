@@ -1,4 +1,9 @@
+
+
 # AdaptiveIR - Dynamic Reverb Adaptivity Plugin
+
+# DISCLAIMERS: 1 - the credit for the idea behind this plugin goes to Franceso from the youtube channel REAPERIANI  
+               2 - this project is 100% vibe coded
 
 **AdaptiveIR** is a specialized VST3/AU audio plugin for parallel processing. It applies a convolution reverb (Impulse Response) that dynamically adapts its spectral content to the input signal to prevent frequency masking and "muddy" tails.
 
@@ -14,7 +19,7 @@
 ### Prerequisites
 - **CMake** (v3.22+)
 - **GCC/G++** (Linux) or **Visual Studio 2022** (Windows)
-- **Linux Dependencies** (for JUCE/GTK): `libgtk-3-dev`, `libwebkit2gtk-4.0-dev`, `libcurl4-openssl-dev`, `libasound2-dev`, `libfreetype6-dev`, `libfontconfig1-dev`.
+- **Linux Dependencies** (for JUCE/GTK): `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libcurl4-openssl-dev`, `libasound2-dev`, `libfreetype6-dev`, `libfontconfig1-dev`.
 
 ### Linux Build
 ```bash
