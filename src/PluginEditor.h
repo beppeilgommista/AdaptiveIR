@@ -1,41 +1,45 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "Config.h"
+#include "Parameters.h"
 #include "components/EQCurveDisplay.h"
 
-class AdaptiveIRAudioProcessorEditor  : public juce::AudioProcessorEditor,
-                                        private juce::Timer
+class AdaptiveIRAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                       private juce::Timer
 {
 public:
-    explicit AdaptiveIRAudioProcessorEditor (AdaptiveIRAudioProcessor&);
+    explicit AdaptiveIRAudioProcessorEditor(AdaptiveIRAudioProcessor&);
     ~AdaptiveIRAudioProcessorEditor() override;
 
-    void paint (juce::Graphics&) override;
+    void paint(juce::Graphics&) override;
     void resized() override;
-    void timerCallback() override;
 
 private:
+    void timerCallback() override;
+
     AdaptiveIRAudioProcessor& audioProcessor;
 
     // UI Components
     EQCurveDisplay eqCurveDisplay;
+
     juce::Slider releaseSlider;
     juce::Slider sensitivitySlider;
     juce::ComboBox resolutionComboBox;
     juce::TextButton processModeButton;
     juce::TextButton loadIRButton;
 
-    // Labels for controls
+    // Labels
     juce::Label releaseLabel;
     juce::Label sensitivityLabel;
     juce::Label resolutionLabel;
     juce::Label irNameLabel;
     juce::Label processModeLabel;
-    
-    // Parameter Attachments
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+    // Attachments
+    using SliderAttachment  = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using ButtonAttachment  = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     std::unique_ptr<SliderAttachment> releaseAttachment;
     std::unique_ptr<SliderAttachment> sensitivityAttachment;
@@ -44,5 +48,5 @@ private:
 
     std::vector<float> curveCopy;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AdaptiveIRAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AdaptiveIRAudioProcessorEditor)
 };

@@ -1,0 +1,1581 @@
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\.github\workflows\build.yml =====
+name: Build and Release Plugin
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+      - 'context-for-IA'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+
+jobs:
+  build_linux:
+    name: Build Linux VST3
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libasound2-dev libcurl4-openssl-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev libgtk-3-dev
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - name: Build
+      run: cmake --build build --config Release --target AdaptiveIR_VST3
+    - name: Prepare Artifact
+      run: |
+        mkdir -p artifacts
+        find build -name "*.vst3" -exec cp -r {} artifacts/ \;
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AdaptiveIR_Linux_VST3
+        path: artifacts/
+
+  build_windows:
+    name: Build Windows VST3
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - name: Build
+      run: cmake --build build --config Release --target AdaptiveIR_VST3
+    - name: Prepare Artifact
+      shell: bash
+      run: |
+        mkdir -p artifacts
+        find build -name "*.vst3" -exec cp -rv {} artifacts/ \;
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AdaptiveIR_Windows_VST3
+        path: artifacts/
+
+  create_release:
+    name: Create/Update Release
+    needs: [build_linux, build_windows]
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Download Linux Artifact
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        name: AdaptiveIR_Linux_VST3
+        path: ./release/linux
+
+    - name: Download Windows Artifact
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        name: AdaptiveIR_Windows_VST3
+        path: ./release/windows
+
+    - name: Zip Artifacts
+      run: |
+        mkdir -p final_assets
+        if [ -d "release/linux" ]; then
+          cd release/linux && zip -r ../../final_assets/AdaptiveIR_Linux.zip . && cd ../..
+        fi
+        if [ -d "release/windows" ]; then
+          cd release/windows && zip -r ../../final_assets/AdaptiveIR_Windows.zip . && cd ../..
+        fi
+
+    - name: Continuous Release (Main Branch)
+      if: github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: latest-dev
+        name: Latest Development Build
+        body: |
+          Build automatica dell'ultimo commit su `main`.
+          Attenzione: questa versione potrebbe essere instabile.
+        files: final_assets/*
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Tagged Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: final_assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\.gitignore =====
+# Build directories
+/build/
+/builds/
+/cmake-build-*/
+/out/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+
+# Visual Studio
+/x64/
+/Debug/
+/Release/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.filters
+
+# JUCE/CMake Specific
+/_deps/
+/AdaptiveIR_artefacts/
+/AdaptiveIR_vst3_helper
+compile_commands.json
+
+# System
+.DS_Store
+Thumbs.db
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\CMakeLists.txt =====
+cmake_minimum_required(VERSION 3.22)
+project(AdaptiveIR VERSION 1.0.0)
+
+# =========================
+# Configurazioni modificabili (CMake Cache)
+# =========================
+set(JUCE_DIR "" CACHE PATH "Path to local JUCE clone (optional). If empty, JUCE will be fetched via FetchContent.")
+set(ADAPTIVEIR_COMPANY_NAME "Tuonome" CACHE STRING "Plugin company name")
+set(ADAPTIVEIR_MANUFACTURER_CODE "TuoM" CACHE STRING "4-char manufacturer code")
+set(ADAPTIVEIR_PLUGIN_CODE "AdIR" CACHE STRING "4-char plugin code")
+set(ADAPTIVEIR_PRODUCT_NAME "AdaptiveIR" CACHE STRING "Product name")
+
+# =========================
+# JUCE: local path OR FetchContent
+# =========================
+if(JUCE_DIR AND EXISTS "${JUCE_DIR}/CMakeLists.txt")
+  message(STATUS "Using local JUCE from: ${JUCE_DIR}")
+  add_subdirectory(${JUCE_DIR} ${CMAKE_BINARY_DIR}/JUCE)
+else()
+  include(FetchContent)
+  FetchContent_Declare(
+    JUCE
+    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG 8.0.6
+  )
+  FetchContent_MakeAvailable(JUCE)
+endif()
+
+# =========================
+# Plugin target
+# =========================
+juce_add_plugin(AdaptiveIR
+  COMPANY_NAME "${ADAPTIVEIR_COMPANY_NAME}"
+  IS_SYNTH FALSE
+  NEEDS_MIDI_INPUT FALSE
+  NEEDS_MIDI_OUTPUT FALSE
+  IS_MIDI_EFFECT FALSE
+  EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+  COPY_PLUGIN_AFTER_BUILD TRUE
+  PLUGIN_MANUFACTURER_CODE ${ADAPTIVEIR_MANUFACTURER_CODE}
+  PLUGIN_CODE ${ADAPTIVEIR_PLUGIN_CODE}
+  FORMATS VST3 AU Standalone
+  PRODUCT_NAME "${ADAPTIVEIR_PRODUCT_NAME}"
+)
+
+# =========================
+# Sources
+# =========================
+target_sources(AdaptiveIR
+  PRIVATE
+    src/Config.h
+    src/Parameters.h
+    src/PluginProcessor.cpp
+    src/PluginProcessor.h
+    src/PluginEditor.cpp
+    src/PluginEditor.h
+    src/components/EQCurveDisplay.h
+    src/dsp/TransientDetector.h
+    src/dsp/SpectralAnalyzer.h
+    src/dsp/DynamicEQ.h
+    src/dsp/Utils.h
+)
+
+# Common definitions
+target_compile_definitions(AdaptiveIR
+  PRIVATE
+    JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
+)
+
+# Linux deps (GTK/WebKit/Curl) - as in your current setup
+if(UNIX AND NOT APPLE)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GTK3 REQUIRED gtk+-x11-3.0 webkit2gtk-4.1 libcurl)
+  target_include_directories(AdaptiveIR PRIVATE ${GTK3_INCLUDE_DIRS})
+  target_link_libraries(AdaptiveIR PRIVATE ${GTK3_LIBRARIES})
+endif()
+
+target_link_libraries(AdaptiveIR
+  PRIVATE
+    juce::juce_audio_utils
+    juce::juce_dsp
+  PUBLIC
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags
+)
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\README.md =====
+
+
+# AdaptiveIR - Dynamic Reverb Adaptivity Plugin
+
+# DISCLAIMERS: 1 - the credit for the idea behind this plugin goes to Franceso from the youtube channel REAPERIANI  
+               2 - this project is 100% vibe coded
+
+**AdaptiveIR** is a specialized VST3/AU audio plugin for parallel processing. It applies a convolution reverb (Impulse Response) that dynamically adapts its spectral content to the input signal to prevent frequency masking and "muddy" tails.
+
+## Features
+- **Dynamic Spectral Matching**: Automatically carves out space in the reverb tail for the dry signal's transient.
+- **Adjustable Octave Resolution**: From coarse (1/oct) to fine (1/4 oct) spectral analysis.
+- **Visual Feedback**: Real-time EQ magnitude display showing the dynamic curve being applied.
+- **Workflow-Focused**: Designed for 100% Wet use on parallel FX tracks.
+- **Flexible Routing**: Apply adaptive EQ either to the dry signal (Pre-Convolution) or to the reverb tail (Post-Convolution).
+
+## Build Instructions
+
+### Prerequisites
+- **CMake** (v3.22+)
+- **GCC/G++** (Linux) or **Visual Studio 2022** (Windows)
+- **Linux Dependencies** (for JUCE/GTK): `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libcurl4-openssl-dev`, `libasound2-dev`, `libfreetype6-dev`, `libfontconfig1-dev`.
+
+### Linux Build
+```bash
+mkdir build && cd build
+cmake ..
+cmake --build . --config Release
+```
+The plugin will be installed automatically to `~/.vst3/AdaptiveIR.vst3`.
+
+### Windows Build
+```bash
+mkdir build && cd build
+cmake .. -G "Visual Studio 17 2022" -A x64
+cmake --build . --config Release
+```
+
+## Usage
+1. Load an **Impulse Response** (WAV) file.
+2. Set the **Sensitivity** to trigger analysis on transients.
+3. Adjust the **Release** to control how fast the EQ returns to neutral.
+4. Use **Resolution** to define the spectral detail of the adaptivity.
+
+## License
+MIT
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\components\EQCurveDisplay.h =====
+#pragma once
+
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <cmath>
+#include <vector>
+#include "../Config.h"
+#include "../dsp/Utils.h"
+
+class EQCurveDisplay : public juce::Component
+{
+public:
+    EQCurveDisplay() = default;
+
+    void updateCurve(const std::vector<float>& newCurve, double sampleRate)
+    {
+        curveData = newCurve;
+        currentSampleRate = sampleRate;
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+
+        // Background and border
+        g.setColour(juce::Colours::black.withAlpha(0.3f));
+        g.fillRoundedRectangle(bounds, 4.0f);
+
+        g.setColour(juce::Colours::white.withAlpha(0.2f));
+        g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+
+        if (curveData.empty() || currentSampleRate <= 0.0)
+            return;
+
+        // Draw frequency grid (logarithmic)
+        g.setColour(juce::Colours::white.withAlpha(0.1f));
+        for (float f : { 100.0f, 1000.0f, 10000.0f })
+        {
+            float x = frequencyToX(f);
+            g.drawVerticalLine(static_cast<int>(x), 0.0f, bounds.getHeight());
+        }
+
+        // Draw EQ Curve Path
+        juce::Path p;
+
+        const int numPoints = 200;
+        const float minFreq = AdaptiveIRConfig::MinFreqHz;
+        const float maxFreq = 20000.0f;
+
+        bool first = true;
+
+        for (int i = 0; i <= numPoints; ++i)
+        {
+            float proportion = static_cast<float>(i) / static_cast<float>(numPoints);
+            float freq = minFreq * std::pow(maxFreq / minFreq, proportion);
+
+            float x = bounds.getX() + proportion * bounds.getWidth();
+            float gain = getGainAtFrequency(freq);
+
+            // Map gain to y (simple display mapping)
+            float y = bounds.getBottom() - (gain * bounds.getHeight() * 0.8f) - (bounds.getHeight() * 0.1f);
+
+            if (first)
+            {
+                p.startNewSubPath(x, y);
+                first = false;
+            }
+            else
+            {
+                p.lineTo(x, y);
+            }
+        }
+
+        g.setColour(juce::Colours::cyan);
+        g.strokePath(p, juce::PathStrokeType(2.0f));
+
+        // Labels
+        g.setColour(juce::Colours::white.withAlpha(0.5f));
+        g.setFont(12.0f);
+        g.drawText("20kHz", static_cast<int>(bounds.getRight() - 50), 5, 45, 15, juce::Justification::right);
+        g.drawText("40Hz", 5, 5, 40, 15, juce::Justification::left);
+    }
+
+private:
+    float frequencyToX(float freq) const
+    {
+        const float minFreq = AdaptiveIRConfig::MinFreqHz;
+        const float maxFreq = 20000.0f;
+
+        float logMin = std::log10(minFreq);
+        float logMax = std::log10(maxFreq);
+        float logFreq = std::log10(juce::jlimit(minFreq, maxFreq, freq));
+
+        auto b = getLocalBounds().toFloat();
+        return b.getX() + ((logFreq - logMin) / (logMax - logMin)) * b.getWidth();
+    }
+
+    float getGainAtFrequency(float freq) const
+    {
+        // curveData is numBins = fftSize/2+1
+        // Reconstruct fftSize from numBins: fftSize = (numBins-1)*2
+        const int numBins = static_cast<int>(curveData.size());
+        const int fftSize = juce::jmax(2, (numBins - 1) * 2);
+
+        int bin = AudioUtils::frequencyToBin(freq, fftSize, currentSampleRate);
+        bin = juce::jlimit(0, numBins - 1, bin);
+
+        return curveData[static_cast<size_t>(bin)];
+    }
+
+    std::vector<float> curveData;
+    double currentSampleRate = 0.0;
+};
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\components\FileLoadButton.h =====
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\components\Knob.h =====
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\components\WaveformDisplay.h =====
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\Config.h =====
+#pragma once
+
+namespace AdaptiveIRConfig
+{
+    // =========================
+    // UI
+    // =========================
+    inline constexpr int UiRefreshMs = 100;
+
+    // =========================
+    // Behaviour when no IR loaded
+    // =========================
+    // true  = pass-through (no processing)
+    // false = mute output
+    inline constexpr bool BypassIfNoIR = true;
+
+    // =========================
+    // Frequency range for curve generation & display
+    // =========================
+    inline constexpr float MinFreqHz = 40.0f;
+    inline constexpr float MaxFreqCapHz = 18000.0f; // clamped to Nyquist
+
+    // =========================
+    // DynamicEQ (FFT)
+    // =========================
+    inline constexpr int   FftOrder = 12;   // 2^12 = 4096
+    inline constexpr float HopFraction = 0.5f; // hop = fftSize * HopFraction
+    inline constexpr bool  NormalizeIfft = true;
+
+    // Depth of inverse EQ mapping: gain = 1/(1 + energy*EqDepthFactor)
+    inline constexpr float EqDepthFactor = 2.0f;
+
+    // =========================
+    // SpectralAnalyzer
+    // =========================
+    inline constexpr int PreSamples = 512;
+
+    // =========================
+    // TransientDetector
+    // =========================
+    inline constexpr float TransientAttackMs  = 1.0f;
+    inline constexpr float TransientReleaseMs = 50.0f;
+    inline constexpr float RefractoryMs       = 200.0f;
+
+    // =========================
+    // Parameters: ranges & defaults (centralizzati)
+    // =========================
+    // Release (seconds)
+    inline constexpr float ReleaseMin = 0.1f;
+    inline constexpr float ReleaseMax = 5.0f;
+    inline constexpr float ReleaseStep = 0.01f;
+    inline constexpr float ReleaseSkew = 0.5f;
+    inline constexpr float ReleaseDefault = 1.0f;
+
+    // Sensitivity (0..1)
+    inline constexpr float SensMin = 0.0f;
+    inline constexpr float SensMax = 1.0f;
+    inline constexpr float SensStep = 0.01f;
+    inline constexpr float SensDefault = 0.5f;
+
+    // Resolution (bands per octave)
+    inline constexpr int ResolutionMin = 1;
+    inline constexpr int ResolutionMax = 4;
+    inline constexpr int ResolutionDefault = 1;
+
+    // Process mode default
+    inline constexpr bool ProcessModeDefault = false;
+}
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\dsp\DynamicEQ.h =====
+#pragma once
+
+#include <juce_dsp/juce_dsp.h>
+#include <map>
+#include <algorithm>
+#include <cmath>
+#include "../Config.h"
+#include "Utils.h"
+
+class DynamicEQ
+{
+public:
+    DynamicEQ()
+        : fftOrder(AdaptiveIRConfig::FftOrder),
+          fftSize(static_cast<size_t>(1u << fftOrder)),
+          fft(fftOrder),
+          window(fftSize, juce::dsp::WindowingFunction<float>::hann),
+          hopSize(computeHopSize(fftSize))
+    {
+    }
+
+    void prepare(const juce::dsp::ProcessSpec& spec)
+    {
+        sampleRate = spec.sampleRate;
+        writePosition = 0;
+
+        fftData.assign(2 * fftSize, 0.0f);
+
+        const auto numBins = (fftSize / 2) + 1;
+        eqCurve.assign(numBins, 1.0f);
+        targetEqCurve.assign(numBins, 1.0f);
+
+        inputFifo.assign(spec.numChannels, std::vector<float>(fftSize, 0.0f));
+        outputFifo.assign(spec.numChannels, std::vector<float>(fftSize, 0.0f));
+
+        setRelease(AdaptiveIRConfig::ReleaseDefault);
+    }
+
+    void setRelease(float releaseTimeSeconds)
+    {
+        if (sampleRate <= 0.0)
+        {
+            releaseFactor = 0.0f;
+            return;
+        }
+
+        const float clampedRelease = juce::jmax(0.001f, releaseTimeSeconds);
+        const double dt = static_cast<double>(hopSize) / sampleRate;
+        releaseFactor = static_cast<float>(std::exp(-dt / clampedRelease));
+    }
+
+    void generateCurve(const std::vector<float>& spectrumData,
+                       int resolution,
+                       int sourceFftSize,
+                       double sourceSampleRate)
+    {
+        if (spectrumData.empty() || sourceSampleRate <= 0.0 || sampleRate <= 0.0)
+            return;
+
+        // Frequency limits
+        const float nyquist = static_cast<float>(sourceSampleRate * 0.5);
+        const float maxFreq = juce::jmin(AdaptiveIRConfig::MaxFreqCapHz, nyquist);
+        const float minFreq = AdaptiveIRConfig::MinFreqHz;
+
+        // 1) Octave band center freqs
+        auto centerFreqs = AudioUtils::getOctaveBandCenterFrequencies(minFreq, maxFreq, resolution);
+        if (centerFreqs.empty())
+            return;
+
+        std::map<float, float> bandEnergies;
+        const int spectrumSize = static_cast<int>(spectrumData.size());
+
+        // 2) Compute average energy per band
+        for (float centerFreq : centerFreqs)
+        {
+            auto limits = AudioUtils::getOctaveBandLimits(centerFreq, resolution);
+
+            int startBin = AudioUtils::frequencyToBin(limits.first, sourceFftSize, sourceSampleRate);
+            int endBin   = AudioUtils::frequencyToBin(limits.second, sourceFftSize, sourceSampleRate);
+
+            startBin = juce::jlimit(0, spectrumSize - 1, startBin);
+            endBin   = juce::jlimit(0, spectrumSize - 1, endBin);
+
+            if (endBin < startBin)
+                std::swap(startBin, endBin);
+
+            float averageEnergy = 0.0f;
+            int count = 0;
+
+            for (int i = startBin; i <= endBin; ++i)
+            {
+                averageEnergy += spectrumData[static_cast<size_t>(i)];
+                ++count;
+            }
+
+            if (count > 0)
+                averageEnergy /= static_cast<float>(count);
+
+            bandEnergies[centerFreq] = averageEnergy;
+        }
+
+        // 3) Map octave-band energies to this EQ's FFT bins (linear bins)
+        for (size_t i = 0; i < targetEqCurve.size(); ++i)
+        {
+            const float freq = AudioUtils::binToFrequency(static_cast<int>(i),
+                                                         static_cast<int>(fftSize),
+                                                         sampleRate);
+
+            auto it = bandEnergies.lower_bound(freq);
+
+            if (it == bandEnergies.end())
+            {
+                targetEqCurve[i] = bandEnergies.rbegin()->second;
+            }
+            else if (it == bandEnergies.begin())
+            {
+                targetEqCurve[i] = it->second;
+            }
+            else
+            {
+                auto prev = std::prev(it);
+
+                const float freq1 = prev->first;
+                const float gain1 = prev->second;
+                const float freq2 = it->first;
+                const float gain2 = it->second;
+
+                const float t = (freq - freq1) / (freq2 - freq1);
+                targetEqCurve[i] = gain1 + (gain2 - gain1) * t;
+            }
+        }
+
+        // 4) Convert energy -> inverse gain (depth controlled by config)
+        const float gainFactor = AdaptiveIRConfig::EqDepthFactor;
+        for (auto& gain : targetEqCurve)
+            gain = 1.0f / (1.0f + gain * gainFactor);
+
+        // 5) Instant attack: apply immediately
+        eqCurve = targetEqCurve;
+
+        // 6) Return target to neutral for release fade-back
+        std::fill(targetEqCurve.begin(), targetEqCurve.end(), 1.0f);
+    }
+
+    void process(const juce::dsp::ProcessContextReplacing<float>& context)
+    {
+        auto& inputBlock  = context.getInputBlock();
+        auto& outputBlock = context.getOutputBlock();
+
+        const size_t numSamples  = inputBlock.getNumSamples();
+        const size_t numChannels = inputBlock.getNumChannels();
+
+        if (numChannels == 0 || numSamples == 0)
+            return;
+
+        if (inputFifo.size() < numChannels)
+        {
+            inputFifo.resize(numChannels, std::vector<float>(fftSize, 0.0f));
+            outputFifo.resize(numChannels, std::vector<float>(fftSize, 0.0f));
+        }
+
+        for (size_t i = 0; i < numSamples; ++i)
+        {
+            for (size_t ch = 0; ch < numChannels; ++ch)
+            {
+                const float* in  = inputBlock.getChannelPointer(ch);
+                float* out       = outputBlock.getChannelPointer(ch);
+
+                const float inputSample = in[i];
+
+                // output sample from overlap-add buffer
+                out[i] = outputFifo[ch][writePosition];
+
+                // push input into fifo tail
+                inputFifo[ch][fftSize - hopSize + writePosition] = inputSample;
+            }
+
+            ++writePosition;
+
+            if (writePosition == hopSize)
+            {
+                // Smooth curve towards target once per hop
+                for (size_t bin = 0; bin < eqCurve.size(); ++bin)
+                    eqCurve[bin] = releaseFactor * eqCurve[bin] + (1.0f - releaseFactor) * targetEqCurve[bin];
+
+                // Shift output buffer left by hop (discard samples already output)
+                for (size_t ch = 0; ch < numChannels; ++ch)
+                {
+                    std::move(outputFifo[ch].begin() + static_cast<std::ptrdiff_t>(hopSize),
+                              outputFifo[ch].end(),
+                              outputFifo[ch].begin());
+
+                    std::fill(outputFifo[ch].begin() + static_cast<std::ptrdiff_t>(fftSize - hopSize),
+                              outputFifo[ch].end(),
+                              0.0f);
+                }
+
+                // Process each channel block
+                for (size_t ch = 0; ch < numChannels; ++ch)
+                {
+                    std::fill(fftData.begin(), fftData.end(), 0.0f);
+
+                    std::copy(inputFifo[ch].begin(), inputFifo[ch].end(), fftData.begin());
+
+                    window.multiplyWithWindowingTable(fftData.data(), fftSize);
+                    fft.performRealOnlyForwardTransform(fftData.data(), true);
+
+                    // Apply EQ curve in frequency domain (real-only complex pairs)
+                    for (size_t bin = 0; bin <= fftSize / 2; ++bin)
+                    {
+                        fftData[bin * 2]     *= eqCurve[bin];
+                        fftData[bin * 2 + 1] *= eqCurve[bin];
+                    }
+
+                    fft.performRealOnlyInverseTransform(fftData.data());
+
+                    // IMPORTANT: normalize IFFT if enabled (gain consistency)
+                    if (AdaptiveIRConfig::NormalizeIfft)
+                    {
+                        const float scale = 1.0f / static_cast<float>(fftSize);
+                        for (size_t n = 0; n < fftSize; ++n)
+                            fftData[n] *= scale;
+                    }
+
+                    // Overlap-add back to output buffer
+                    for (size_t n = 0; n < fftSize; ++n)
+                        outputFifo[ch][n] += fftData[n];
+
+                    // Shift input FIFO left by hop
+                    std::move(inputFifo[ch].begin() + static_cast<std::ptrdiff_t>(hopSize),
+                              inputFifo[ch].end(),
+                              inputFifo[ch].begin());
+                }
+
+                writePosition = 0;
+            }
+        }
+    }
+
+    size_t getNumBins() const { return eqCurve.size(); }
+
+    void getCurve(std::vector<float>& dest) const
+    {
+        dest.resize(eqCurve.size());
+        std::copy(eqCurve.begin(), eqCurve.end(), dest.begin());
+    }
+
+private:
+    static size_t computeHopSize(size_t fftSizeIn)
+    {
+        // Ensure hop is at least 1 and <= fftSize
+        const float hopF = AdaptiveIRConfig::HopFraction;
+        size_t hop = static_cast<size_t>(static_cast<double>(fftSizeIn) * static_cast<double>(hopF));
+
+        if (hop < 1) hop = 1;
+        if (hop > fftSizeIn) hop = fftSizeIn;
+
+        return hop;
+    }
+
+    const int fftOrder;
+    const size_t fftSize;
+
+    juce::dsp::FFT fft;
+    juce::dsp::WindowingFunction<float> window;
+    const size_t hopSize;
+
+    std::vector<float> fftData;
+
+    std::vector<float> eqCurve;
+    std::vector<float> targetEqCurve;
+
+    std::vector<std::vector<float>> inputFifo;
+    std::vector<std::vector<float>> outputFifo;
+
+    size_t writePosition = 0;
+
+    double sampleRate = 0.0;
+    float releaseFactor = 0.99f;
+};
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\dsp\SpectralAnalyzer.h =====
+#pragma once
+
+#include <juce_dsp/juce_dsp.h>
+#include "../Config.h"
+
+class SpectralAnalyzer
+{
+public:
+    SpectralAnalyzer()
+        : fftOrder(AdaptiveIRConfig::FftOrder),
+          fftSize(static_cast<size_t>(1u << fftOrder)),
+          fft(fftOrder),
+          window(fftSize, juce::dsp::WindowingFunction<float>::hann)
+    {
+        fftData.resize(2 * fftSize, 0.0f);
+        spectrumData.resize(fftSize / 2 + 1, 0.0f);
+    }
+
+    void prepare(const juce::dsp::ProcessSpec& spec)
+    {
+        sampleRate = spec.sampleRate;
+
+        // mono FIFO, 2x fft window for circular buffer
+        fifo.setSize(1, static_cast<int>(fftSize) * 2);
+        fifo.clear();
+        writePos = 0;
+    }
+
+    void pushSamples(const juce::AudioBuffer<float>& buffer)
+    {
+        const int numSamples  = buffer.getNumSamples();
+        const int numChannels = buffer.getNumChannels();
+        const int fifoSize    = fifo.getNumSamples();
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Mono mix: average across channels
+            float mono = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                mono += buffer.getSample(ch, i);
+            mono /= juce::jmax(1, numChannels);
+
+            fifo.setSample(0, writePos, mono);
+            writePos = (writePos + 1) % fifoSize;
+        }
+    }
+
+    void analyze()
+    {
+        const int fifoSize = fifo.getNumSamples();
+        if (fifoSize <= 0 || sampleRate <= 0.0)
+            return;
+
+        const int preSamples = AdaptiveIRConfig::PreSamples;
+
+        std::fill(fftData.begin(), fftData.end(), 0.0f);
+
+        int readPos = (writePos - preSamples + fifoSize) % fifoSize;
+        for (int i = 0; i < static_cast<int>(fftSize); ++i)
+            fftData[static_cast<size_t>(i)] = fifo.getSample(0, (readPos + i) % fifoSize);
+
+        window.multiplyWithWindowingTable(fftData.data(), fftSize);
+
+        // Frequency-only gives magnitude spectrum directly in fftData[0..fftSize/2]
+        fft.performFrequencyOnlyForwardTransform(fftData.data(), true);
+
+        for (size_t i = 0; i <= fftSize / 2; ++i)
+            spectrumData[i] = fftData[i];
+    }
+
+    const std::vector<float>& getSpectrumData() const
+    {
+        return spectrumData;
+    }
+
+    int getFftSize() const
+    {
+        return static_cast<int>(fftSize);
+    }
+
+    double getSampleRate() const
+    {
+        return sampleRate;
+    }
+
+private:
+    const int fftOrder;
+    const size_t fftSize;
+
+    juce::dsp::FFT fft;
+    juce::dsp::WindowingFunction<float> window;
+
+    std::vector<float> fftData;
+    std::vector<float> spectrumData;
+
+    juce::AudioBuffer<float> fifo;
+    int writePos = 0;
+
+    double sampleRate = 0.0;
+};
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\dsp\TransientDetector.h =====
+#pragma once
+
+#include <juce_dsp/juce_dsp.h>
+#include "../Config.h"
+
+class TransientDetector
+{
+public:
+    TransientDetector() = default;
+
+    void prepare(const juce::dsp::ProcessSpec& spec)
+    {
+        sampleRate = spec.sampleRate;
+
+        // Use a mono envelope follower for a stereo/multichannel input (mono mix).
+        juce::dsp::ProcessSpec monoSpec { spec.sampleRate, spec.maximumBlockSize, 1 };
+        envelopeFollower.prepare(monoSpec);
+
+        envelopeFollower.setAttackTime(AdaptiveIRConfig::TransientAttackMs);
+        envelopeFollower.setReleaseTime(AdaptiveIRConfig::TransientReleaseMs);
+
+        previousEnvelopeValue = 0.0f;
+        transientHasOccurred = false;
+        refractoryCounter = 0;
+    }
+
+    void process(const juce::AudioBuffer<float>& buffer, float sensitivity)
+    {
+        transientHasOccurred = false;
+
+        if (sampleRate <= 0.0)
+            return;
+
+        if (refractoryCounter > 0)
+        {
+            refractoryCounter = juce::jmax(0, refractoryCounter - buffer.getNumSamples());
+            if (refractoryCounter > 0)
+                return;
+        }
+
+        const int numSamples  = buffer.getNumSamples();
+        const int numChannels = buffer.getNumChannels();
+
+        // Threshold logic kept as-is but clamped (robustness)
+        float threshold = 1.0f - sensitivity;
+        threshold = juce::jlimit(0.0f, 1.0f, threshold);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Mono mix: average absolute across channels
+            float monoAbs = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                monoAbs += std::abs(buffer.getSample(ch, i));
+            monoAbs /= juce::jmax(1, numChannels);
+
+            const float envelope = envelopeFollower.processSample(0, monoAbs);
+
+            if (envelope > threshold && previousEnvelopeValue <= threshold)
+            {
+                transientHasOccurred = true;
+                refractoryCounter = static_cast<int>(sampleRate * (AdaptiveIRConfig::RefractoryMs / 1000.0f));
+                break;
+            }
+
+            previousEnvelopeValue = envelope;
+        }
+    }
+
+    bool wasTransientDetected() const
+    {
+        return transientHasOccurred;
+    }
+
+private:
+    juce::dsp::BallisticsFilter<float> envelopeFollower;
+    double sampleRate = 0.0;
+
+    float previousEnvelopeValue = 0.0f;
+    bool transientHasOccurred = false;
+    int refractoryCounter = 0;
+};
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\dsp\Utils.h =====
+#pragma once
+
+#include <vector>
+#include <cmath>
+#include <utility>
+
+namespace AudioUtils
+{
+    inline int frequencyToBin(const float frequency, const int fftSize, const double sampleRate)
+    {
+        return static_cast<int>((frequency / static_cast<float>(sampleRate)) * static_cast<float>(fftSize));
+    }
+
+    inline float binToFrequency(const int bin, const int fftSize, const double sampleRate)
+    {
+        return static_cast<float>(bin * sampleRate / fftSize);
+    }
+
+    // resolution: 1 = 1 octave, 2 = 1/2 octave, 4 = 1/4 octave, etc.
+    inline std::vector<float> getOctaveBandCenterFrequencies(float minFreq, float maxFreq, int bandsPerOctave)
+    {
+        std::vector<float> frequencies;
+        if (bandsPerOctave <= 0 || minFreq <= 0.0f || maxFreq <= minFreq)
+            return frequencies;
+
+        float ratio = std::pow(2.0f, 1.0f / static_cast<float>(bandsPerOctave));
+        float currentFreq = minFreq;
+
+        while (currentFreq <= maxFreq)
+        {
+            frequencies.push_back(currentFreq);
+            currentFreq *= ratio;
+        }
+
+        return frequencies;
+    }
+
+    inline std::pair<float, float> getOctaveBandLimits(float centerFreq, int bandsPerOctave)
+    {
+        float factor = std::pow(2.0f, 1.0f / (2.0f * static_cast<float>(bandsPerOctave)));
+        return { centerFreq / factor, centerFreq * factor };
+    }
+}
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\Parameters.h =====
+#pragma once
+
+#include <juce_audio_processors/juce_audio_processors.h>
+#include "Config.h"
+
+namespace AdaptiveIRParams
+{
+    inline const juce::StringRef RELEASE     = "Release";
+    inline const juce::StringRef SENSITIVITY = "Sensitivity";
+    inline const juce::StringRef RESOLUTION  = "Resolution";
+    inline const juce::StringRef PROCESSMODE = "ProcessMode";
+
+    inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
+    {
+        juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{ RELEASE, 1 },
+            "Release",
+            juce::NormalisableRange<float>(
+                AdaptiveIRConfig::ReleaseMin,
+                AdaptiveIRConfig::ReleaseMax,
+                AdaptiveIRConfig::ReleaseStep,
+                AdaptiveIRConfig::ReleaseSkew
+            ),
+            AdaptiveIRConfig::ReleaseDefault
+        ));
+
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{ SENSITIVITY, 1 },
+            "Sensitivity",
+            juce::NormalisableRange<float>(
+                AdaptiveIRConfig::SensMin,
+                AdaptiveIRConfig::SensMax,
+                AdaptiveIRConfig::SensStep
+            ),
+            AdaptiveIRConfig::SensDefault
+        ));
+
+        layout.add(std::make_unique<juce::AudioParameterInt>(
+            juce::ParameterID{ RESOLUTION, 1 },
+            "Resolution",
+            AdaptiveIRConfig::ResolutionMin,
+            AdaptiveIRConfig::ResolutionMax,
+            AdaptiveIRConfig::ResolutionDefault
+        ));
+
+        layout.add(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{ PROCESSMODE, 1 },
+            "Process Mode",
+            AdaptiveIRConfig::ProcessModeDefault
+        ));
+
+        return layout;
+    }
+}
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\PluginEditor.cpp =====
+#include "PluginEditor.h"
+
+//==============================================================================
+AdaptiveIRAudioProcessorEditor::AdaptiveIRAudioProcessorEditor(AdaptiveIRAudioProcessor& p)
+    : AudioProcessorEditor(&p), audioProcessor(p)
+{
+    // --- Sliders ---
+    releaseSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    releaseSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, true, 80, 20);
+    releaseSlider.setTextValueSuffix(" s");
+    addAndMakeVisible(releaseSlider);
+
+    sensitivitySlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    sensitivitySlider.setTextBoxStyle(juce::Slider::TextBoxBelow, true, 80, 20);
+    addAndMakeVisible(sensitivitySlider);
+
+    // --- ComboBox for Resolution ---
+    resolutionComboBox.addItem("1 / Octave", 1);
+    resolutionComboBox.addItem("1/2 Octave", 2);
+    resolutionComboBox.addItem("1/3 Octave", 3);
+    resolutionComboBox.addItem("1/4 Octave", 4);
+    addAndMakeVisible(resolutionComboBox);
+
+    // --- Buttons ---
+    processModeButton.setButtonText("Toggle EQ Routing");
+    processModeButton.setClickingTogglesState(true);
+    addAndMakeVisible(processModeButton);
+
+    loadIRButton.setButtonText("Load Impulse Response");
+    addAndMakeVisible(loadIRButton);
+    loadIRButton.onClick = [this] { audioProcessor.loadIRFromFile(); };
+
+    // --- Labels ---
+    releaseLabel.setText("Release", juce::dontSendNotification);
+    releaseLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(releaseLabel);
+
+    sensitivityLabel.setText("Sensitivity", juce::dontSendNotification);
+    sensitivityLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(sensitivityLabel);
+
+    resolutionLabel.setText("Resolution", juce::dontSendNotification);
+    resolutionLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(resolutionLabel);
+
+    irNameLabel.setText("IR: None", juce::dontSendNotification);
+    irNameLabel.setJustificationType(juce::Justification::centred);
+    irNameLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    addAndMakeVisible(irNameLabel);
+
+    processModeLabel.setText("EQ Target: Wet Signal", juce::dontSendNotification);
+    processModeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(processModeLabel);
+
+    addAndMakeVisible(eqCurveDisplay);
+
+    // --- Attachments ---
+    releaseAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, AdaptiveIRParams::RELEASE, releaseSlider);
+    sensitivityAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, AdaptiveIRParams::SENSITIVITY, sensitivitySlider);
+    resolutionAttachment = std::make_unique<ComboBoxAttachment>(audioProcessor.apvts, AdaptiveIRParams::RESOLUTION, resolutionComboBox);
+    processModeAttachment = std::make_unique<ButtonAttachment>(audioProcessor.apvts, AdaptiveIRParams::PROCESSMODE, processModeButton);
+
+    // Timer for dynamic labels / curve
+    startTimer(AdaptiveIRConfig::UiRefreshMs);
+
+    setSize(500, 400);
+}
+
+AdaptiveIRAudioProcessorEditor::~AdaptiveIRAudioProcessorEditor()
+{
+    stopTimer();
+}
+
+void AdaptiveIRAudioProcessorEditor::timerCallback()
+{
+    // Update IR label
+    const auto currentIR = audioProcessor.getLoadedIRName();
+    const juce::String newIrText = "IR: " + currentIR;
+
+    if (irNameLabel.getText() != newIrText)
+        irNameLabel.setText(newIrText, juce::dontSendNotification);
+
+    // Update process mode label
+    const bool isPreConv = audioProcessor.apvts.getRawParameterValue(AdaptiveIRParams::PROCESSMODE)->load() > 0.5f;
+    const juce::String modeText = isPreConv ? "EQ Target: Dry (Pre-IR)" : "EQ Target: Wet (Post-IR)";
+
+    if (processModeLabel.getText() != modeText)
+        processModeLabel.setText(modeText, juce::dontSendNotification);
+
+    // Update curve display
+    audioProcessor.getCurrentEQCurve(curveCopy);
+    eqCurveDisplay.updateCurve(curveCopy, audioProcessor.getSampleRate());
+}
+
+//==============================================================================
+void AdaptiveIRAudioProcessorEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+}
+
+void AdaptiveIRAudioProcessorEditor::resized()
+{
+    auto bounds = getLocalBounds().reduced(20);
+
+    auto topArea = bounds.removeFromTop(100);
+    loadIRButton.setBounds(topArea.removeFromTop(30));
+    irNameLabel.setBounds(topArea.removeFromTop(30));
+
+    bounds.removeFromTop(10);
+
+    // EQ Display
+    eqCurveDisplay.setBounds(bounds.removeFromTop(120));
+
+    bounds.removeFromTop(10);
+
+    auto controlsArea = bounds.removeFromTop(120);
+    auto knobWidth = controlsArea.getWidth() / 3;
+
+    auto releaseArea = controlsArea.removeFromLeft(knobWidth);
+    releaseLabel.setBounds(releaseArea.removeFromTop(20));
+    releaseSlider.setBounds(releaseArea);
+
+    auto sensitivityArea = controlsArea.removeFromLeft(knobWidth);
+    sensitivityLabel.setBounds(sensitivityArea.removeFromTop(20));
+    sensitivitySlider.setBounds(sensitivityArea);
+
+    auto rightSideArea = controlsArea;
+    resolutionLabel.setBounds(rightSideArea.removeFromTop(20));
+    resolutionComboBox.setBounds(rightSideArea.removeFromTop(30));
+
+    bounds.removeFromTop(20);
+
+    auto bottomArea = bounds;
+    processModeLabel.setBounds(bottomArea.removeFromTop(20));
+    processModeButton.setBounds(bottomArea.removeFromTop(30));
+}
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\PluginEditor.h =====
+#pragma once
+
+#include "PluginProcessor.h"
+#include "Config.h"
+#include "Parameters.h"
+#include "components/EQCurveDisplay.h"
+
+class AdaptiveIRAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                       private juce::Timer
+{
+public:
+    explicit AdaptiveIRAudioProcessorEditor(AdaptiveIRAudioProcessor&);
+    ~AdaptiveIRAudioProcessorEditor() override;
+
+    void paint(juce::Graphics&) override;
+    void resized() override;
+
+private:
+    void timerCallback() override;
+
+    AdaptiveIRAudioProcessor& audioProcessor;
+
+    // UI Components
+    EQCurveDisplay eqCurveDisplay;
+
+    juce::Slider releaseSlider;
+    juce::Slider sensitivitySlider;
+    juce::ComboBox resolutionComboBox;
+    juce::TextButton processModeButton;
+    juce::TextButton loadIRButton;
+
+    // Labels
+    juce::Label releaseLabel;
+    juce::Label sensitivityLabel;
+    juce::Label resolutionLabel;
+    juce::Label irNameLabel;
+    juce::Label processModeLabel;
+
+    // Attachments
+    using SliderAttachment  = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+    using ButtonAttachment  = juce::AudioProcessorValueTreeState::ButtonAttachment;
+
+    std::unique_ptr<SliderAttachment> releaseAttachment;
+    std::unique_ptr<SliderAttachment> sensitivityAttachment;
+    std::unique_ptr<ComboBoxAttachment> resolutionAttachment;
+    std::unique_ptr<ButtonAttachment> processModeAttachment;
+
+    std::vector<float> curveCopy;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AdaptiveIRAudioProcessorEditor)
+};
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\PluginProcessor.cpp =====
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+#include <juce_audio_formats/juce_audio_formats.h>
+
+//==============================================================================
+AdaptiveIRAudioProcessor::AdaptiveIRAudioProcessor()
+#ifndef JucePlugin_PreferredChannelConfigurations
+    : AudioProcessor(BusesProperties()
+#if ! JucePlugin_IsMidiEffect
+#if ! JucePlugin_IsSynth
+        .withInput("Input", juce::AudioChannelSet::stereo(), true)
+#endif
+        .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+#endif
+    )
+#endif
+    , apvts(*this, nullptr, "Parameters", AdaptiveIRParams::createLayout())
+{
+}
+
+AdaptiveIRAudioProcessor::~AdaptiveIRAudioProcessor() = default;
+
+//==============================================================================
+const juce::String AdaptiveIRAudioProcessor::getName() const
+{
+    return JucePlugin_Name;
+}
+
+bool AdaptiveIRAudioProcessor::acceptsMidi() const
+{
+#if JucePlugin_WantsMidiInput
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool AdaptiveIRAudioProcessor::producesMidi() const
+{
+#if JucePlugin_ProducesMidiOutput
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool AdaptiveIRAudioProcessor::isMidiEffect() const
+{
+#if JucePlugin_IsMidiEffect
+    return true;
+#else
+    return false;
+#endif
+}
+
+double AdaptiveIRAudioProcessor::getTailLengthSeconds() const
+{
+    if (currentSampleRate <= 0.0)
+        return 0.0;
+
+    return static_cast<double>(convolution.getLatency()) / currentSampleRate;
+}
+
+int AdaptiveIRAudioProcessor::getNumPrograms() { return 1; }
+int AdaptiveIRAudioProcessor::getCurrentProgram() { return 0; }
+void AdaptiveIRAudioProcessor::setCurrentProgram(int index) { juce::ignoreUnused(index); }
+const juce::String AdaptiveIRAudioProcessor::getProgramName(int index) { juce::ignoreUnused(index); return {}; }
+void AdaptiveIRAudioProcessor::changeProgramName(int index, const juce::String& newName) { juce::ignoreUnused(index, newName); }
+
+//==============================================================================
+void AdaptiveIRAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+{
+    currentSampleRate = sampleRate;
+
+    juce::dsp::ProcessSpec spec {
+        sampleRate,
+        static_cast<juce::uint32>(samplesPerBlock),
+        static_cast<juce::uint32>(getTotalNumInputChannels())
+    };
+
+    transientDetector.prepare(spec);
+    spectralAnalyzer.prepare(spec);
+    dynamicEQ.prepare(spec);
+    convolution.prepare(spec);
+
+    // Initial latency: DynamicEQ (fftSize - hopSize) + convolution latency.
+    // For default fftOrder=12 and hop=0.5 => 4096-2048 = 2048
+    setLatencySamples(2048 + static_cast<int>(convolution.getLatency()));
+}
+
+void AdaptiveIRAudioProcessor::releaseResources()
+{
+    convolution.reset();
+    irLoaded = false;
+    loadedIRName = "None";
+}
+
+#ifndef JucePlugin_PreferredChannelConfigurations
+bool AdaptiveIRAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+#if JucePlugin_IsMidiEffect
+    juce::ignoreUnused(layouts);
+    return true;
+#else
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+        && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+
+#if ! JucePlugin_IsSynth
+    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
+        return false;
+#endif
+
+    return true;
+#endif
+}
+#endif
+
+void AdaptiveIRAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
+    juce::ignoreUnused(midiMessages);
+    juce::ScopedNoDenormals noDenormals;
+
+    auto totalNumInputChannels = getTotalNumInputChannels();
+    auto totalNumOutputChannels = getTotalNumOutputChannels();
+
+    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
+        buffer.clear(i, 0, buffer.getNumSamples());
+
+    if (!irLoaded)
+    {
+        if (AdaptiveIRConfig::BypassIfNoIR)
+        {
+            // Pass-through: copia input su output
+            // (solo se input e output hanno lo stesso numero di canali)
+            // Se vuoi gestire casi diversi, copia solo i canali disponibili
+            for (int ch = 0; ch < juce::jmin(totalNumInputChannels, totalNumOutputChannels); ++ch)
+                ; // non serve copiare, il buffer è già input=output
+            return;
+        }
+        buffer.clear();
+        return;
+    }
+
+    // --- Get Parameters ---
+    const float release = apvts.getRawParameterValue(AdaptiveIRParams::RELEASE)->load();
+    const float sensitivity = apvts.getRawParameterValue(AdaptiveIRParams::SENSITIVITY)->load();
+    const int resolution = static_cast<int>(apvts.getRawParameterValue(AdaptiveIRParams::RESOLUTION)->load());
+    const bool processModePre = apvts.getRawParameterValue(AdaptiveIRParams::PROCESSMODE)->load() > 0.5f;
+
+    // --- DSP Signal Flow ---
+    // Always push samples to analyzer FIFO (mono mix inside analyzer)
+    spectralAnalyzer.pushSamples(buffer);
+
+    // Copy for transient detection (detector does mono mix internally)
+    juce::AudioBuffer<float> analysisBuffer;
+    analysisBuffer.makeCopyOf(buffer);
+
+    // 1) Transient detection
+    transientDetector.process(analysisBuffer, sensitivity);
+
+    if (transientDetector.wasTransientDetected())
+    {
+        // 2) Spectral analysis on transient
+        spectralAnalyzer.analyze();
+        const auto& spectrum = spectralAnalyzer.getSpectrumData();
+
+        // 3) Generate inverse EQ curve
+        dynamicEQ.generateCurve(spectrum,
+                                resolution,
+                                spectralAnalyzer.getFftSize(),
+                                spectralAnalyzer.getSampleRate());
+    }
+
+    // 4) Apply processing based on mode
+    dynamicEQ.setRelease(release);
+
+    juce::dsp::AudioBlock<float> block(buffer);
+    juce::dsp::ProcessContextReplacing<float> context(block);
+
+    if (processModePre)
+    {
+        // Pre-convolution EQ
+        dynamicEQ.process(context);
+        convolution.process(context);
+    }
+    else
+    {
+        // Post-convolution EQ
+        convolution.process(context);
+        dynamicEQ.process(context);
+    }
+}
+
+//==============================================================================
+bool AdaptiveIRAudioProcessor::hasEditor() const
+{
+    return true;
+}
+
+juce::AudioProcessorEditor* AdaptiveIRAudioProcessor::createEditor()
+{
+    return new AdaptiveIRAudioProcessorEditor(*this);
+}
+
+//==============================================================================
+void AdaptiveIRAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    copyXmlToBinary(*xml, destData);
+}
+
+void AdaptiveIRAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
+
+    if (xmlState != nullptr)
+        if (xmlState->hasTagName(apvts.state.getType()))
+            apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+}
+
+void AdaptiveIRAudioProcessor::loadIRFromFile()
+{
+    irChooser = std::make_unique<juce::FileChooser>(
+        "Select an Impulse Response file...",
+        juce::File{},
+        "*.wav;*.aif;*.flac"
+    );
+
+    auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+    irChooser->launchAsync(flags, [this](const juce::FileChooser& chooser)
+    {
+        const auto file = chooser.getResult();
+        if (!file.existsAsFile())
+            return;
+
+        juce::AudioFormatManager formatManager;
+        formatManager.registerBasicFormats();
+
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+
+        if (reader != nullptr)
+        {
+            convolution.loadImpulseResponse(
+                file,
+                juce::dsp::Convolution::Stereo::yes,
+                juce::dsp::Convolution::Trim::yes,
+                reader->lengthInSamples
+            );
+
+            loadedIRName = file.getFileName();
+            irLoaded = true;
+
+            setLatencySamples(2048 + static_cast<int>(convolution.getLatency()));
+            updateHostDisplay();
+        }
+    });
+}
+
+//==============================================================================
+// This creates new instances of the plugin..
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new AdaptiveIRAudioProcessor();
+}
+
+===== C:\Users\eghignatti\Desktop\progetti-code\AdaptiveIR\src\PluginProcessor.h =====
+#pragma once
+
+#include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
+
+#include "Config.h"
+#include "Parameters.h"
+
+#include "dsp/DynamicEQ.h"
+#include "dsp/SpectralAnalyzer.h"
+#include "dsp/TransientDetector.h"
+
+class AdaptiveIRAudioProcessor : public juce::AudioProcessor
+{
+public:
+    AdaptiveIRAudioProcessor();
+    ~AdaptiveIRAudioProcessor() override;
+
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override;
+    void releaseResources() override;
+
+#ifndef JucePlugin_PreferredChannelConfigurations
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
+#endif
+
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override;
+
+    const juce::String getName() const override;
+    bool acceptsMidi() const override;
+    bool producesMidi() const override;
+    bool isMidiEffect() const override;
+
+    double getTailLengthSeconds() const override;
+
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram(int index) override;
+    const juce::String getProgramName(int index) override;
+    void changeProgramName(int index, const juce::String& newName) override;
+
+    void getStateInformation(juce::MemoryBlock& destData) override;
+    void setStateInformation(const void* data, int sizeInBytes) override;
+
+    void loadIRFromFile();
+    juce::String getLoadedIRName() const { return loadedIRName; }
+
+    void getCurrentEQCurve(std::vector<float>& dest) const { dynamicEQ.getCurve(dest); }
+
+    // APVTS
+    juce::AudioProcessorValueTreeState apvts;
+
+private:
+    // DSP Modules
+    TransientDetector transientDetector;
+    SpectralAnalyzer spectralAnalyzer;
+    DynamicEQ dynamicEQ;
+
+    juce::dsp::Convolution convolution;
+
+    std::unique_ptr<juce::FileChooser> irChooser;
+    juce::String loadedIRName = "None";
+    bool irLoaded = false;
+
+    double currentSampleRate = 0.0;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AdaptiveIRAudioProcessor)
+};
+

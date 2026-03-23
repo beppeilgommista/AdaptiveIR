@@ -1,60 +1,67 @@
 #pragma once
 
 #include <juce_dsp/juce_dsp.h>
+#include "../Config.h"
 
 class SpectralAnalyzer
 {
 public:
-    SpectralAnalyzer() : 
-        fftOrder(12), // 2^12 = 4096
-        fftSize(1 << fftOrder),
-        fft(fftOrder),
-        window(fftSize, juce::dsp::WindowingFunction<float>::hann)
+    SpectralAnalyzer()
+        : fftOrder(AdaptiveIRConfig::FftOrder),
+          fftSize(static_cast<size_t>(1u << fftOrder)),
+          fft(fftOrder),
+          window(fftSize, juce::dsp::WindowingFunction<float>::hann)
     {
-        fftData.resize(2 * fftSize);
-        spectrumData.resize(fftSize / 2 + 1);
+        fftData.resize(2 * fftSize, 0.0f);
+        spectrumData.resize(fftSize / 2 + 1, 0.0f);
     }
 
     void prepare(const juce::dsp::ProcessSpec& spec)
     {
         sampleRate = spec.sampleRate;
-        fifo.setSize(1, (int)fftSize * 2);
+
+        // mono FIFO, 2x fft window for circular buffer
+        fifo.setSize(1, static_cast<int>(fftSize) * 2);
         fifo.clear();
         writePos = 0;
     }
 
     void pushSamples(const juce::AudioBuffer<float>& buffer)
     {
-        auto numSamples = buffer.getNumSamples();
-        auto fifoSize = fifo.getNumSamples();
-        
-        // Simple push into circular buffer (first channel only)
+        const int numSamples  = buffer.getNumSamples();
+        const int numChannels = buffer.getNumChannels();
+        const int fifoSize    = fifo.getNumSamples();
+
         for (int i = 0; i < numSamples; ++i)
         {
-            fifo.setSample(0, writePos, buffer.getSample(0, i));
+            // Mono mix: average across channels
+            float mono = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                mono += buffer.getSample(ch, i);
+            mono /= juce::jmax(1, numChannels);
+
+            fifo.setSample(0, writePos, mono);
             writePos = (writePos + 1) % fifoSize;
         }
     }
 
     void analyze()
     {
-        auto fifoSize = fifo.getNumSamples();
-        
-        // Offset analysis window so that the current detection is closer to the beginning
-        // We capture e.g. 512 samples before and the rest after.
-        const int preSamples = 512;
-        std::fill(fftData.begin(), fftData.end(), 0.0f);
-        
-        int readPos = (writePos - preSamples + fifoSize) % fifoSize;
-        for (int i = 0; i < (int)fftSize; ++i)
-        {
-            fftData[i] = fifo.getSample(0, (readPos + i) % fifoSize);
-        }
+        const int fifoSize = fifo.getNumSamples();
+        if (fifoSize <= 0 || sampleRate <= 0.0)
+            return;
 
-        // Apply windowing
+        const int preSamples = AdaptiveIRConfig::PreSamples;
+
+        std::fill(fftData.begin(), fftData.end(), 0.0f);
+
+        int readPos = (writePos - preSamples + fifoSize) % fifoSize;
+        for (int i = 0; i < static_cast<int>(fftSize); ++i)
+            fftData[static_cast<size_t>(i)] = fifo.getSample(0, (readPos + i) % fifoSize);
+
         window.multiplyWithWindowingTable(fftData.data(), fftSize);
 
-        // Perform forward FFT and compute magnitude spectrum (non-negative freqs only)
+        // Frequency-only gives magnitude spectrum directly in fftData[0..fftSize/2]
         fft.performFrequencyOnlyForwardTransform(fftData.data(), true);
 
         for (size_t i = 0; i <= fftSize / 2; ++i)
@@ -65,12 +72,12 @@ public:
     {
         return spectrumData;
     }
-    
+
     int getFftSize() const
     {
-        return fftSize;
+        return static_cast<int>(fftSize);
     }
-    
+
     double getSampleRate() const
     {
         return sampleRate;
@@ -79,14 +86,15 @@ public:
 private:
     const int fftOrder;
     const size_t fftSize;
+
     juce::dsp::FFT fft;
     juce::dsp::WindowingFunction<float> window;
 
     std::vector<float> fftData;
     std::vector<float> spectrumData;
-    
+
     juce::AudioBuffer<float> fifo;
     int writePos = 0;
-    
+
     double sampleRate = 0.0;
 };

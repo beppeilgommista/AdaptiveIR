@@ -1,6 +1,7 @@
 #pragma once
-
 #include <juce_dsp/juce_dsp.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include "../Config.h"
 
 class TransientDetector
 {
@@ -10,46 +11,68 @@ public:
     void prepare(const juce::dsp::ProcessSpec& spec)
     {
         sampleRate = spec.sampleRate;
-        
-        // Ballistics filter for envelope following
-        // Attack time is very short to catch the transient
-        // Release time can be adjusted, but this is a starting point
-        envelopeFollower.prepare(spec);
-        envelopeFollower.setAttackTime(1.0f); // ms
-        envelopeFollower.setReleaseTime(50.0f); // ms
+
+        // mono follower (anche se input è stereo)
+        juce::dsp::ProcessSpec monoSpec { spec.sampleRate, spec.maximumBlockSize, 1 };
+        envelopeFollower.prepare(monoSpec);
+        envelopeFollower.setAttackTime(AdaptiveIRConfig::TransientAttackMs);
+        envelopeFollower.setReleaseTime(AdaptiveIRConfig::TransientReleaseMs);
+
+        previousEnvelopeDb = -120.0f;
+        transientHasOccurred = false;
+        refractoryCounter = 0;
     }
 
-    // Process a block of audio and update the transient detection flag
     void process(const juce::AudioBuffer<float>& buffer, float sensitivity)
     {
         transientHasOccurred = false;
-        
+
+        if (sampleRate <= 0.0)
+            return;
+
         if (refractoryCounter > 0)
         {
-            int numSamples = buffer.getNumSamples();
-            refractoryCounter = std::max(0, refractoryCounter - numSamples);
-            if (refractoryCounter > 0) return;
+            refractoryCounter = juce::jmax(0, refractoryCounter - buffer.getNumSamples());
+            if (refractoryCounter > 0)
+                return;
         }
 
-        const float* input = buffer.getReadPointer(0);
-        
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        const int numSamples  = buffer.getNumSamples();
+        const int numChannels = buffer.getNumChannels();
+
+        // Sensitivity 0..1 -> soglia dB (0 = difficile, 1 = facile)
+        const float sens = juce::jlimit(0.0f, 1.0f, sensitivity);
+        const float thresholdDb = juce::jmap(sens,
+                                             0.0f, 1.0f,
+                                             AdaptiveIRConfig::TransientThresholdDbAtSens0,
+                                             AdaptiveIRConfig::TransientThresholdDbAtSens1);
+
+        for (int i = 0; i < numSamples; ++i)
         {
-            float envelope = envelopeFollower.processSample(0, std::abs(input[i]));
-            float threshold = 1.0f - sensitivity;
-            
-            if (envelope > threshold && previousEnvelopeValue <= threshold)
+            // mono mix: media del valore assoluto
+            float monoAbs = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                monoAbs += std::abs(buffer.getSample(ch, i));
+
+            monoAbs /= juce::jmax(1, numChannels);
+
+            const float envelope = envelopeFollower.processSample(0, monoAbs);
+
+            // Converti in dB (evita -inf)
+            const float envelopeDb = juce::Decibels::gainToDecibels(envelope + 1.0e-6f, -120.0f);
+
+            // edge detection: crossing da sotto a sopra la soglia
+            if (envelopeDb > thresholdDb && previousEnvelopeDb <= thresholdDb)
             {
                 transientHasOccurred = true;
-                refractoryCounter = static_cast<int>(sampleRate * 0.2); // 200ms refractory period
+                refractoryCounter = static_cast<int>(sampleRate * (AdaptiveIRConfig::RefractoryMs / 1000.0f));
                 break;
             }
-            
-            previousEnvelopeValue = envelope;
+
+            previousEnvelopeDb = envelopeDb;
         }
     }
 
-    // Returns true if a transient was detected in the last processed block
     bool wasTransientDetected() const
     {
         return transientHasOccurred;
@@ -58,7 +81,8 @@ public:
 private:
     juce::dsp::BallisticsFilter<float> envelopeFollower;
     double sampleRate = 0.0;
-    float previousEnvelopeValue = 0.0f;
+
+    float previousEnvelopeDb = -120.0f;
     bool transientHasOccurred = false;
     int refractoryCounter = 0;
 };

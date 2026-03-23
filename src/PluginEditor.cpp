@@ -1,14 +1,13 @@
-#include "PluginProcessor.h"
 #include "PluginEditor.h"
 
 //==============================================================================
-AdaptiveIRAudioProcessorEditor::AdaptiveIRAudioProcessorEditor (AdaptiveIRAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p)
+AdaptiveIRAudioProcessorEditor::AdaptiveIRAudioProcessorEditor(AdaptiveIRAudioProcessor& p)
+    : AudioProcessorEditor(&p), audioProcessor(p)
 {
     // --- Sliders ---
     releaseSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     releaseSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, true, 80, 20);
-    releaseSlider.setTextValueSuffix(" s"); // Add suffix in seconds
+    releaseSlider.setTextValueSuffix(" s");
     addAndMakeVisible(releaseSlider);
 
     sensitivitySlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -39,7 +38,7 @@ AdaptiveIRAudioProcessorEditor::AdaptiveIRAudioProcessorEditor (AdaptiveIRAudioP
     sensitivityLabel.setText("Sensitivity", juce::dontSendNotification);
     sensitivityLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(sensitivityLabel);
-    
+
     resolutionLabel.setText("Resolution", juce::dontSendNotification);
     resolutionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(resolutionLabel);
@@ -56,15 +55,15 @@ AdaptiveIRAudioProcessorEditor::AdaptiveIRAudioProcessorEditor (AdaptiveIRAudioP
     addAndMakeVisible(eqCurveDisplay);
 
     // --- Attachments ---
-    releaseAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, audioProcessor.RELEASE_PARAM, releaseSlider);
-    sensitivityAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, audioProcessor.SENSITIVITY, sensitivitySlider);
-    resolutionAttachment = std::make_unique<ComboBoxAttachment>(audioProcessor.apvts, audioProcessor.RESOLUTION, resolutionComboBox);
-    processModeAttachment = std::make_unique<ButtonAttachment>(audioProcessor.apvts, audioProcessor.PROCESS_MODE, processModeButton);
+    releaseAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, AdaptiveIRParams::RELEASE, releaseSlider);
+    sensitivityAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, AdaptiveIRParams::SENSITIVITY, sensitivitySlider);
+    resolutionAttachment = std::make_unique<ComboBoxAttachment>(audioProcessor.apvts, AdaptiveIRParams::RESOLUTION, resolutionComboBox);
+    processModeAttachment = std::make_unique<ButtonAttachment>(audioProcessor.apvts, AdaptiveIRParams::PROCESSMODE, processModeButton);
 
-    // Start timer to update dynamic labels
-    startTimer(100);
+    // Timer for dynamic labels / curve
+    startTimer(AdaptiveIRConfig::UiRefreshMs);
 
-    setSize (500, 400);
+    setSize(500, 400);
 }
 
 AdaptiveIRAudioProcessorEditor::~AdaptiveIRAudioProcessorEditor()
@@ -74,44 +73,46 @@ AdaptiveIRAudioProcessorEditor::~AdaptiveIRAudioProcessorEditor()
 
 void AdaptiveIRAudioProcessorEditor::timerCallback()
 {
-    // Update IR Name Label
-    auto currentIR = audioProcessor.getLoadedIRName();
-    if (irNameLabel.getText() != "IR: " + currentIR)
-        irNameLabel.setText("IR: " + currentIR, juce::dontSendNotification);
+    // Update IR label
+    const auto currentIR = audioProcessor.getLoadedIRName();
+    const juce::String newIrText = "IR: " + currentIR;
 
-    // Update Process Mode Label
-    auto isPreConv = audioProcessor.apvts.getRawParameterValue(audioProcessor.PROCESS_MODE)->load() > 0.5f;
-    auto modeText = isPreConv ? "EQ Target: Dry (Pre-IR)" : "EQ Target: Wet (Post-IR)";
-    
+    if (irNameLabel.getText() != newIrText)
+        irNameLabel.setText(newIrText, juce::dontSendNotification);
+
+    // Update process mode label
+    const bool isPreConv = audioProcessor.apvts.getRawParameterValue(AdaptiveIRParams::PROCESSMODE)->load() > 0.5f;
+    const juce::String modeText = isPreConv ? "EQ Target: Dry (Pre-IR)" : "EQ Target: Wet (Post-IR)";
+
     if (processModeLabel.getText() != modeText)
         processModeLabel.setText(modeText, juce::dontSendNotification);
 
-    // Update EQ Curve
+    // Update curve display
     audioProcessor.getCurrentEQCurve(curveCopy);
     eqCurveDisplay.updateCurve(curveCopy, audioProcessor.getSampleRate());
 }
 
 //==============================================================================
-void AdaptiveIRAudioProcessorEditor::paint (juce::Graphics& g)
+void AdaptiveIRAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
 void AdaptiveIRAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds().reduced(20);
-    
+
     auto topArea = bounds.removeFromTop(100);
     loadIRButton.setBounds(topArea.removeFromTop(30));
     irNameLabel.setBounds(topArea.removeFromTop(30));
-    
+
     bounds.removeFromTop(10);
-    
-    // EQ Display Area
+
+    // EQ Display
     eqCurveDisplay.setBounds(bounds.removeFromTop(120));
-    
+
     bounds.removeFromTop(10);
-    
+
     auto controlsArea = bounds.removeFromTop(120);
     auto knobWidth = controlsArea.getWidth() / 3;
 
@@ -122,12 +123,13 @@ void AdaptiveIRAudioProcessorEditor::resized()
     auto sensitivityArea = controlsArea.removeFromLeft(knobWidth);
     sensitivityLabel.setBounds(sensitivityArea.removeFromTop(20));
     sensitivitySlider.setBounds(sensitivityArea);
-    
+
     auto rightSideArea = controlsArea;
     resolutionLabel.setBounds(rightSideArea.removeFromTop(20));
     resolutionComboBox.setBounds(rightSideArea.removeFromTop(30));
-    
+
     bounds.removeFromTop(20);
+
     auto bottomArea = bounds;
     processModeLabel.setBounds(bottomArea.removeFromTop(20));
     processModeButton.setBounds(bottomArea.removeFromTop(30));
